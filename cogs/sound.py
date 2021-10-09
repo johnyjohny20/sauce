@@ -1,12 +1,17 @@
 import pafy
 import billboard
 from pytube import Playlist
+from random import shuffle
 import youtube_dl
 import asyncio
 import discord
 from discord.ext import commands
 purple = 0x843cdd
 yt='https://img.icons8.com/external-those-icons-lineal-color-those-icons/24/000000/external-youtube-applications-windows-those-icons-lineal-color-those-icons.png'
+ffmpeg_options = {
+    'options': '-vn',
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+}
 class Sound(commands.Cog):
     def __init__(self, bot):
         self.bot = bot 
@@ -24,10 +29,13 @@ class Sound(commands.Cog):
             self.song_time[guild.id] = []
 
     async def check_queue(self, ctx):
-            await self.play_song(ctx, self.song_queue[ctx.guild.id][0], self.song_time[ctx.guild.id][0])
-            self.song_queue[ctx.guild.id].pop(0)
-            self.song_titles[ctx.guild.id].pop(0)
-            self.song_time[ctx.guild.id].pop(0)
+            if ctx.voice_client.is_playing():
+                print(1)
+            else:
+                await self.play_song(ctx, self.song_queue[ctx.guild.id][0], self.song_time[ctx.guild.id][0])
+                self.song_queue[ctx.guild.id].pop(0)
+                self.song_titles[ctx.guild.id].pop(0)
+                self.song_time[ctx.guild.id].pop(0)
 
     async def search_song(self, amount, song, get_url=False):
         info = await self.bot.loop.run_in_executor(None, lambda: youtube_dl.YoutubeDL({"format" : "bestaudio", "quiet" : True}).extract_info(f"ytsearch{amount}:{song}", download=False, ie_key="YoutubeSearch"))
@@ -60,7 +68,7 @@ class Sound(commands.Cog):
     async def play_song(self, ctx, song, time):   
         music = pafy.new(song)
         url = pafy.new(song).getbestaudio().url
-        ctx.voice_client.play(discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(url)), after=lambda error: self.bot.loop.create_task(self.check_queue(ctx)))
+        ctx.voice_client.play(discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(url, **ffmpeg_options)), after=lambda e: print('Player error: %s' % e) if e else None)
         ctx.voice_client.source.volume = 0.8
         def next_song():
             try:
@@ -154,7 +162,7 @@ class Sound(commands.Cog):
         embed.set_footer(text=f"Displaying the first {amount} results.")
         await ctx.send(embed=embed)
 
-    @commands.command(name='q')
+    @commands.command(name='q', aliases=['queue'])
     async def queue(self, ctx): # display the current guilds queue
         if len(self.song_queue[ctx.guild.id]) == 0:
             return await ctx.send("There are currently no songs in the queue.")
@@ -162,7 +170,7 @@ class Sound(commands.Cog):
         i = 1
         for title, duration in zip(self.song_titles[ctx.guild.id], self.song_time[ctx.guild.id]):
            
-            embed.description += f"{i}) {title} `{duration}`\n"
+            embed.description += f"#{i} `{duration}` {title}\n" #1 
             i += 1
 
         embed.set_footer(text="tip: you can use #m to search tracks without playing")
@@ -282,3 +290,27 @@ class Sound(commands.Cog):
         
         ctx.voice_client.resume()
         await ctx.send("The current song has been resumed.") 
+    
+    @commands.command()
+    async def shuffle(self, ctx):
+        if ctx.voice_client is None:
+            await ctx.send(' To view queue please join voice channel first.')
+        else:
+            if len(self.song_queue[ctx.guild.id]) == 0:
+                return await ctx.send(":no_entry_sign: cannot shuffle because there is no songs in the queue.")
+            else:
+                res =list(zip(self.song_queue[ctx.guild.id], self.song_titles[ctx.guild.id], self.song_time[ctx.guild.id]))
+                shuffle(res)
+                self.song_queue[ctx.guild.id], self.song_titles[ctx.guild.id], self.song_time[ctx.guild.id] = zip(*res)
+                # pag may naisip nako palitan ko to fuck 
+                self.song_queue[ctx.guild.id] = list(self.song_queue[ctx.guild.id])
+                self.song_titles[ctx.guild.id] = list(self.song_titles[ctx.guild.id])
+                self.song_time[ctx.guild.id] = list(self.song_time[ctx.guild.id])
+                
+
+                
+                async with ctx.typing():
+                    await asyncio.sleep(1)
+                await ctx.send('Shuffled the queue!')
+                await ctx.message.add_reaction("👍")
+                await self.queue(ctx)
